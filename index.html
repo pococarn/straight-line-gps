@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Farm A-B Lightbar</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AB Lightbar">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+
+<style>
+  html, body { margin:0; padding:0; width:100%; min-height:100%; background:#000; color:#fff; font-family:Arial, Helvetica, sans-serif; text-align:center; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; overflow-x:hidden; }
+  #app { padding:8px; }
+  .status { font-size:20px; margin:5px; min-height:28px; }
+  .offset { font-size:54px; font-weight:bold; margin-top:8px; min-height:74px; }
+  .arrow { font-size:88px; font-weight:bold; margin:2px; min-height:96px; }
+  .small { font-size:22px; margin:5px; }
+  .tiny { font-size:16px; margin:3px; color:#bbb; }
+  button { font-size:21px; font-weight:bold; margin:4px; padding:13px 10px; border-radius:10px; border:0; color:#1877ff; }
+  .green { color:#00ff00; }
+  .yellow { color:#ffff00; }
+  .red { color:#ff4444; }
+  .white { color:#ffffff; }
+  .row { margin-top:5px; }
+  .wide { width:44%; }
+  .third { width:29%; }
+  .full { width:92%; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="installHint" class="tiny" style="display:none;color:#ffff00;">For full screen: Safari Share → Add to Home Screen, then open from the new icon.</div>
+  <div id="gpsStatus" class="status red">GPS: NOT STARTED</div>
+  <div id="gpsDetail" class="tiny">Tap START GPS outside with clear sky.</div>
+
+  <div id="offset" class="offset">SET A POINT</div>
+  <div id="arrow" class="arrow">--</div>
+
+  <div id="speed" class="small">Speed: 0.0 km/h</div>
+  <div id="width" class="small">Width: 8.0 m | Swath: 0 | Nudge: 0.0 m</div>
+  <div id="coords" class="tiny">Lat/Lon: --</div>
+
+  <div class="row">
+    <button class="wide" onclick="setA()">SET A</button>
+    <button class="wide" onclick="setB()">SET B</button>
+  </div>
+
+  <div class="row">
+    <button class="wide" onclick="nudgeLeft()">NUDGE ←</button>
+    <button class="wide" onclick="nudgeRight()">NUDGE →</button>
+  </div>
+
+  <div class="row">
+    <button class="third" onclick="widthMinusSmall()">-0.1 m</button>
+    <button class="third" onclick="widthMinus()">-0.5 m</button>
+    <button class="third" onclick="widthMinusBig()">-1.0 m</button>
+  </div>
+
+  <div class="row">
+    <button class="third" onclick="widthPlusSmall()">+0.1 m</button>
+    <button class="third" onclick="widthPlus()">+0.5 m</button>
+    <button class="third" onclick="widthPlusBig()">+1.0 m</button>
+  </div>
+
+  <div class="row">
+    <button class="wide" onclick="nextPreset()">WIDTH PRESET</button>
+    <button class="wide" onclick="customWidth()">TYPE WIDTH</button>
+  </div>
+
+  <div class="row">
+    <button class="full" onclick="clearLine()">CLEAR A-B LINE</button>
+  </div>
+
+  <div class="row">
+    <button class="full" onclick="startGps()">START GPS</button>
+  </div>
+</div>
+
+<script>
+var current = null;
+var pointA = null;
+var pointB = null;
+var implementWidth = loadNumber("implementWidth", 8.0);
+var nudge = loadNumber("nudge", 0.0);
+var speedKmh = 0.0;
+var watchId = null;
+var R = 6378137.0;
+var presets = [4, 6, 8, 9, 10, 12, 15, 18, 24, 27, 30, 36];
+var presetIndex = 2;
+
+function $(id) { return document.getElementById(id); }
+
+function loadNumber(key, fallback) {
+  try {
+    var v = localStorage.getItem(key);
+    if (v === null) return fallback;
+    var n = parseFloat(v);
+    return isNaN(n) ? fallback : n;
+  } catch(e) { return fallback; }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem("implementWidth", implementWidth);
+    localStorage.setItem("nudge", nudge);
+  } catch(e) {}
+}
+
+function degToRad(d) { return d * Math.PI / 180.0; }
+
+function latLonToLocalMetres(origin, p) {
+  var lat0 = degToRad(origin.lat);
+  var dLat = degToRad(p.lat - origin.lat);
+  var dLon = degToRad(p.lon - origin.lon);
+  return { x: dLon * Math.cos(lat0) * R, y: dLat * R };
+}
+
+function setGpsStatus(text, detail, cls) {
+  $("gpsStatus").innerHTML = text;
+  $("gpsStatus").className = "status " + cls;
+  $("gpsDetail").innerHTML = detail || "";
+}
+
+function updateWidthLine(swath) {
+  $("width").innerHTML = "Width: " + implementWidth.toFixed(1) +
+    " m | Swath: " + swath +
+    " | Nudge: " + nudge.toFixed(1) + " m";
+}
+
+function calculateGuidance() {
+  updateWidthLine(0);
+
+  if (!current) {
+    $("offset").innerHTML = "NO GPS";
+    $("arrow").innerHTML = "--";
+    return;
+  }
+
+  if (!pointA) {
+    $("offset").innerHTML = "SET A POINT";
+    $("arrow").innerHTML = "--";
+    $("offset").className = "offset white";
+    $("arrow").className = "arrow white";
+    return;
+  }
+
+  if (!pointB) {
+    $("offset").innerHTML = "DRIVE, THEN SET B";
+    $("arrow").innerHTML = "--";
+    $("offset").className = "offset yellow";
+    $("arrow").className = "arrow yellow";
+    return;
+  }
+
+  var b = latLonToLocalMetres(pointA, pointB);
+  var p = latLonToLocalMetres(pointA, current);
+
+  var len = Math.sqrt(b.x * b.x + b.y * b.y);
+  if (len < 2.0) {
+    $("offset").innerHTML = "BAD A-B LINE";
+    $("arrow").innerHTML = "--";
+    return;
+  }
+
+  var ux = b.x / len;
+  var uy = b.y / len;
+
+  var cross = p.x * (-uy) + p.y * ux;
+  cross += nudge;
+
+  var swath = Math.round(cross / implementWidth);
+  var target = swath * implementWidth;
+  var error = cross - target;
+  var absErr = Math.abs(error);
+
+  $("width").innerHTML = "Width: " + implementWidth.toFixed(1) +
+    " m | Swath: " + swath +
+    " | Nudge: " + nudge.toFixed(1) + " m";
+
+  if (absErr < 0.25) {
+    $("offset").innerHTML = "ON LINE";
+    $("arrow").innerHTML = "||";
+    $("offset").className = "offset green";
+    $("arrow").className = "arrow green";
+  } else if (error < 0) {
+    $("offset").innerHTML = absErr.toFixed(1) + " m LEFT";
+    $("arrow").innerHTML = "← ← ←";
+    $("offset").className = "offset yellow";
+    $("arrow").className = "arrow yellow";
+  } else {
+    $("offset").innerHTML = absErr.toFixed(1) + " m RIGHT";
+    $("arrow").innerHTML = "→ → →";
+    $("offset").className = "offset yellow";
+    $("arrow").className = "arrow yellow";
+  }
+}
+
+function setA() {
+  if (!current) { alert("No GPS position yet. Press START GPS and wait for GPS FIX OK."); return; }
+  pointA = { lat: current.lat, lon: current.lon };
+  pointB = null;
+  $("offset").innerHTML = "A SET";
+  $("arrow").innerHTML = "DRIVE";
+  calculateGuidance();
+}
+
+function setB() {
+  if (!current || !pointA) { alert("Set A first, then drive forward 20-50 metres and set B."); return; }
+  pointB = { lat: current.lat, lon: current.lon };
+  calculateGuidance();
+}
+
+function clearLine() {
+  pointA = null;
+  pointB = null;
+  nudge = 0.0;
+  saveSettings();
+  calculateGuidance();
+}
+
+function nudgeLeft() { nudge -= 0.5; saveSettings(); calculateGuidance(); }
+function nudgeRight() { nudge += 0.5; saveSettings(); calculateGuidance(); }
+
+function changeWidth(delta) {
+  implementWidth += delta;
+  if (implementWidth < 0.5) implementWidth = 0.5;
+  saveSettings();
+  calculateGuidance();
+}
+
+function widthMinusSmall() { changeWidth(-0.1); }
+function widthPlusSmall() { changeWidth(0.1); }
+function widthMinus() { changeWidth(-0.5); }
+function widthPlus() { changeWidth(0.5); }
+function widthMinusBig() { changeWidth(-1.0); }
+function widthPlusBig() { changeWidth(1.0); }
+
+function nextPreset() {
+  presetIndex++;
+  if (presetIndex >= presets.length) presetIndex = 0;
+  implementWidth = presets[presetIndex];
+  saveSettings();
+  calculateGuidance();
+}
+
+function customWidth() {
+  var v = prompt("Enter implement width in metres", implementWidth.toFixed(1));
+  if (v === null) return;
+  var n = parseFloat(v);
+  if (isNaN(n) || n <= 0) { alert("Enter a valid width, for example 8 or 12.5"); return; }
+  implementWidth = n;
+  saveSettings();
+  calculateGuidance();
+}
+
+function startGps() {
+  if (!navigator.geolocation) {
+    setGpsStatus("GPS: NOT SUPPORTED", "This iPad/Safari does not support browser GPS.", "red");
+    return;
+  }
+
+  if (watchId !== null) {
+    setGpsStatus("GPS: ALREADY STARTED", "Waiting for position update.", "yellow");
+    return;
+  }
+
+  setGpsStatus("GPS: STARTING", "If asked, allow location access. Go outside for first fix.", "yellow");
+
+  try {
+    watchId = navigator.geolocation.watchPosition(
+      function(pos) {
+        var lat = pos.coords.latitude;
+        var lon = pos.coords.longitude;
+        var accuracy = pos.coords.accuracy;
+        var spd = pos.coords.speed;
+
+        current = { lat: lat, lon: lon };
+
+        if (spd !== null && !isNaN(spd)) speedKmh = spd * 3.6;
+
+        var accText = accuracy ? accuracy.toFixed(1) : "?";
+        var cls = (accuracy && accuracy <= 10) ? "green" : "yellow";
+
+        setGpsStatus("GPS: FIX OK", "Accuracy: " + accText + " m | If high, move outside/clear sky.", cls);
+
+        $("speed").innerHTML = "Speed: " + speedKmh.toFixed(1) + " km/h";
+        $("coords").innerHTML = "Lat/Lon: " + lat.toFixed(6) + ", " + lon.toFixed(6);
+
+        calculateGuidance();
+      },
+      function(err) {
+        var msg = "Unknown GPS error";
+        if (err.code === 1) msg = "Permission denied. Enable Safari location access.";
+        if (err.code === 2) msg = "Position unavailable. Go outside and wait.";
+        if (err.code === 3) msg = "GPS timeout. Try again outside.";
+        setGpsStatus("GPS ERROR", msg, "red");
+        watchId = null;
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
+    );
+  } catch(e) {
+    setGpsStatus("GPS ERROR", e.message, "red");
+    watchId = null;
+  }
+}
+
+function isStandaloneMode() {
+  return window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+}
+
+function setupFullscreenMode() {
+  if (!isStandaloneMode()) {
+    var h = $("installHint");
+    if (h) h.style.display = "block";
+  }
+
+  // Helps old iOS Safari behave more like an app.
+  document.addEventListener("touchmove", function(e) {
+    if (e.target.tagName !== "BUTTON") {
+      e.preventDefault();
+    }
+  }, false);
+}
+
+setupFullscreenMode();
+updateWidthLine(0);
+calculateGuidance();
+</script>
+</body>
+</html>
