@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Farm A-B Lightbar</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AB Lightbar">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#000000">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  html, body {
+    margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+    background:#000; color:#fff; font-family:Arial, Helvetica, sans-serif;
+    text-align:center; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none;
+  }
+  #portraitWarning { display:none; }
+  #app {
+    width:100vw; height:100vh; box-sizing:border-box; padding:5px 8px;
+    display:flex; flex-direction:column; overflow:hidden; background:#000;
+  }
+  #installHint {
+    display:none; font-size:13px; color:#ffff00; height:16px; line-height:16px; flex-shrink:0;
+  }
+  #top {
+    height:42px; flex-shrink:0; display:grid;
+    grid-template-columns: 1.2fr 1fr 1fr 1fr;
+    gap:8px; align-items:center; border-bottom:1px solid #222;
+  }
+  .topBox {
+    font-size:20px; font-weight:bold; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  #gpsBox { text-align:left; }
+  #gpsAcc { text-align:center; border-radius:8px; padding:4px; }
+  #speedBox { text-align:center; }
+  #widthBox { text-align:right; }
+
+  #main {
+    flex:1; min-height:0; display:flex; flex-direction:column;
+    justify-content:center; align-items:center; overflow:hidden;
+  }
+  #guidanceText {
+    font-size:58px; line-height:62px; font-weight:bold; min-height:66px; margin-top:2px;
+  }
+  #lightbar {
+    width:98%; height:112px; display:flex; align-items:center; justify-content:center;
+    gap:10px; margin:6px 0;
+  }
+  .led {
+    width:42px; height:42px; border-radius:50%; background:#222;
+    border:4px solid #666; box-sizing:border-box;
+  }
+  .ledOnLeft { background:#ffff00; border-color:#ffff00; box-shadow:0 0 18px #ffff00; }
+  .ledOnRight { background:#ffff00; border-color:#ffff00; box-shadow:0 0 18px #ffff00; }
+  .ledOnCentre { background:#00ff00; border-color:#00ff00; box-shadow:0 0 20px #00ff00; }
+  .ledPoor { background:#ff3333; border-color:#ff3333; box-shadow:0 0 18px #ff3333; }
+  #centreMarker {
+    width:0; height:0; border-left:18px solid transparent; border-right:18px solid transparent;
+    border-top:28px solid #fff; margin-top:-2px;
+  }
+  #subText {
+    font-size:26px; color:#bbb; height:32px; font-weight:bold;
+  }
+  #coords {
+    font-size:14px; color:#777; height:18px;
+  }
+  #bottom {
+    height:76px; flex-shrink:0; display:grid; grid-template-columns:repeat(4,1fr);
+    gap:6px; padding-top:6px; box-sizing:border-box; border-top:1px solid #222;
+  }
+  button {
+    height:64px; font-size:24px; font-weight:bold; border:0; border-radius:10px;
+    color:#1877ff; background:#f2f2f2; padding:0;
+  }
+  #btnGps { color:#fff; background:#008000; }
+  #btnA, #btnB { color:#000; background:#ffd400; }
+  #btnMenu { color:#fff; background:#444; }
+  .green { color:#00ff00; }
+  .yellow { color:#ffff00; }
+  .red { color:#ff4444; }
+  .white { color:#ffffff; }
+
+  #menuOverlay {
+    display:none; position:absolute; left:0; top:0; width:100vw; height:100vh;
+    background:rgba(0,0,0,0.92); z-index:10; box-sizing:border-box; padding:12px;
+    overflow:hidden;
+  }
+  #menuPanel {
+    width:100%; height:100%; display:grid;
+    grid-template-columns: repeat(4, 1fr); grid-auto-rows: 58px; gap:6px;
+    align-content:start;
+  }
+  .menuTitle {
+    grid-column:1 / span 4; color:#fff; font-size:32px; line-height:48px; font-weight:bold;
+  }
+  .menuButton {
+    height:58px; font-size:19px; background:#f2f2f2; color:#1877ff; border-radius:9px;
+  }
+  .menuButtonWide { grid-column: span 2; }
+  .menuButtonClose { background:#aa0000; color:#fff; }
+  .menuButtonGreen { background:#008000; color:#fff; }
+
+  @media (orientation: portrait) {
+    #app, #menuOverlay { display:none; }
+    #portraitWarning {
+      display:flex; width:100vw; height:100vh; align-items:center; justify-content:center;
+      background:#000; color:#ffff00; font-size:34px; font-weight:bold; text-align:center;
+      padding:20px; box-sizing:border-box;
+    }
+  }
+  @media (max-height:430px) {
+    #top { height:36px; }
+    .topBox { font-size:17px; }
+    #guidanceText { font-size:48px; line-height:52px; min-height:54px; }
+    #lightbar { height:86px; gap:8px; }
+    .led { width:34px; height:34px; border-width:3px; }
+    #centreMarker { border-left-width:14px; border-right-width:14px; border-top-width:22px; }
+    #subText { font-size:22px; height:26px; }
+    #bottom { height:62px; }
+    button { height:52px; font-size:20px; }
+    #menuPanel { grid-auto-rows:48px; }
+    .menuButton { height:48px; font-size:16px; }
+    .menuTitle { font-size:26px; line-height:40px; }
+  }
+</style>
+</head>
+<body>
+<div id="portraitWarning">Turn iPad sideways<br>Landscape mode required</div>
+
+<div id="app">
+  <div id="installHint">For full screen: Safari Share → Add to Home Screen, then open from the icon.</div>
+
+  <div id="top">
+    <div id="gpsBox" class="topBox red">GPS OFF</div>
+    <div id="gpsAcc" class="topBox red">NO FIX</div>
+    <div id="speedBox" class="topBox">0.0 km/h</div>
+    <div id="widthBox" class="topBox">Width 8.0m</div>
+  </div>
+
+  <div id="main">
+    <div id="guidanceText" class="white">NO GPS</div>
+    <div id="lightbar"></div>
+    <div id="centreMarker"></div>
+    <div id="subText">Set A, drive forward, then Set B</div>
+    <div id="coords">Lat/Lon: --</div>
+  </div>
+
+  <div id="bottom">
+    <button id="btnGps" onclick="startGps()">START GPS</button>
+    <button id="btnA" onclick="setA()">SET A</button>
+    <button id="btnB" onclick="setB()">SET B</button>
+    <button id="btnMenu" onclick="openMenu()">MENU</button>
+  </div>
+</div>
+
+<div id="menuOverlay">
+  <div id="menuPanel">
+    <div class="menuTitle">SETTINGS</div>
+
+    <button class="menuButton" onclick="changeWidth(-1)">W -1.0</button>
+    <button class="menuButton" onclick="changeWidth(-0.5)">W -0.5</button>
+    <button class="menuButton" onclick="changeWidth(0.5)">W +0.5</button>
+    <button class="menuButton" onclick="changeWidth(1)">W +1.0</button>
+
+    <button class="menuButton" onclick="setWidth(6)">6m</button>
+    <button class="menuButton" onclick="setWidth(8)">8m</button>
+    <button class="menuButton" onclick="setWidth(12)">12m</button>
+    <button class="menuButton" onclick="setWidth(18)">18m</button>
+
+    <button class="menuButton" onclick="setWidth(24)">24m</button>
+    <button class="menuButton" onclick="setWidth(27)">27m</button>
+    <button class="menuButton" onclick="setWidth(30)">30m</button>
+    <button class="menuButton" onclick="setWidth(36)">36m</button>
+
+    <button class="menuButton menuButtonWide" onclick="customWidth()">TYPE CUSTOM WIDTH</button>
+    <button class="menuButton" onclick="nudgeLeft()">NUDGE ←</button>
+    <button class="menuButton" onclick="nudgeRight()">NUDGE →</button>
+
+    <button class="menuButton" onclick="antennaLeft()">ANT ←</button>
+    <button class="menuButton" onclick="antennaRight()">ANT →</button>
+    <button class="menuButton" onclick="setDayMode()">DAY</button>
+    <button class="menuButton" onclick="setNightMode()">NIGHT</button>
+
+    <button class="menuButton menuButtonWide" onclick="clearLine()">CLEAR A-B LINE</button>
+    <button class="menuButton menuButtonGreen" onclick="keepScreenInfo()">KEEP SCREEN ON</button>
+    <button class="menuButton menuButtonClose" onclick="closeMenu()">CLOSE</button>
+  </div>
+</div>
+
+<script>
+var current = null;
+var pointA = null;
+var pointB = null;
+
+var implementWidth = loadNumber("implementWidth", 8.0);
+var nudge = loadNumber("nudge", 0.0);
+var antennaOffset = loadNumber("antennaOffset", 0.0);
+var speedKmh = 0.0;
+var watchId = null;
+var R = 6378137.0;
+var lastAccuracy = 0;
+
+function $(id) { return document.getElementById(id); }
+
+function loadNumber(key, fallback) {
+  try {
+    var v = localStorage.getItem(key);
+    if (v === null) return fallback;
+    var n = parseFloat(v);
+    return isNaN(n) ? fallback : n;
+  } catch(e) { return fallback; }
+}
+
+function saveSettings() {
+  try {
+    localStorage.setItem("implementWidth", implementWidth);
+    localStorage.setItem("nudge", nudge);
+    localStorage.setItem("antennaOffset", antennaOffset);
+  } catch(e) {}
+}
+
+function buildLeds() {
+  var lb = $("lightbar");
+  lb.innerHTML = "";
+  for (var i = 0; i < 13; i++) {
+    var led = document.createElement("div");
+    led.className = "led";
+    led.id = "led" + i;
+    lb.appendChild(led);
+  }
+}
+
+function clearLeds() {
+  for (var i = 0; i < 13; i++) {
+    $("led" + i).className = "led";
+  }
+}
+
+function setLightbar(error, hasLine) {
+  clearLeds();
+
+  if (!hasLine) return;
+
+  var centre = 6;
+  var absErr = Math.abs(error);
+
+  if (absErr < 0.25) {
+    $("led5").className = "led ledOnCentre";
+    $("led6").className = "led ledOnCentre";
+    $("led7").className = "led ledOnCentre";
+    return;
+  }
+
+  var steps = Math.ceil(absErr / 0.25);
+  if (steps > 6) steps = 6;
+
+  if (error < 0) {
+    // Need steer right? Display lit LEDs on left side as correction cue.
+    for (var i = centre; i >= centre - steps; i--) {
+      $("led" + i).className = "led ledOnLeft";
+    }
+  } else {
+    for (var j = centre; j <= centre + steps; j++) {
+      $("led" + j).className = "led ledOnRight";
+    }
+  }
+
+  if (lastAccuracy > 10) {
+    $("led0").className = "led ledPoor";
+    $("led12").className = "led ledPoor";
+  }
+}
+
+function degToRad(d) { return d * Math.PI / 180.0; }
+
+function latLonToLocalMetres(origin, p) {
+  var lat0 = degToRad(origin.lat);
+  var dLat = degToRad(p.lat - origin.lat);
+  var dLon = degToRad(p.lon - origin.lon);
+  return { x: dLon * Math.cos(lat0) * R, y: dLat * R };
+}
+
+function setGpsDisplay(status, acc) {
+  if (status === "off") {
+    $("gpsBox").innerHTML = "GPS OFF";
+    $("gpsBox").className = "topBox red";
+    $("gpsAcc").innerHTML = "NO FIX";
+    $("gpsAcc").className = "topBox red";
+    return;
+  }
+
+  if (status === "starting") {
+    $("gpsBox").innerHTML = "GPS STARTING";
+    $("gpsBox").className = "topBox yellow";
+    $("gpsAcc").innerHTML = "SEARCH";
+    $("gpsAcc").className = "topBox yellow";
+    return;
+  }
+
+  if (status === "error") {
+    $("gpsBox").innerHTML = "GPS ERROR";
+    $("gpsBox").className = "topBox red";
+    $("gpsAcc").innerHTML = "NO FIX";
+    $("gpsAcc").className = "topBox red";
+    return;
+  }
+
+  var txt = acc ? acc.toFixed(1) + "m" : "?m";
+  $("gpsBox").innerHTML = "GPS FIX";
+
+  if (acc <= 5) {
+    $("gpsBox").className = "topBox green";
+    $("gpsAcc").className = "topBox green";
+    $("gpsAcc").innerHTML = txt + " GOOD";
+  } else if (acc <= 10) {
+    $("gpsBox").className = "topBox yellow";
+    $("gpsAcc").className = "topBox yellow";
+    $("gpsAcc").innerHTML = txt + " OK";
+  } else {
+    $("gpsBox").className = "topBox red";
+    $("gpsAcc").className = "topBox red";
+    $("gpsAcc").innerHTML = txt + " POOR";
+  }
+}
+
+function updateTop(swath) {
+  $("speedBox").innerHTML = speedKmh.toFixed(1) + " km/h";
+  $("widthBox").innerHTML = "Width " + implementWidth.toFixed(1) + "m | Sw " + swath;
+}
+
+function calculateGuidance() {
+  updateTop(0);
+
+  if (!current) {
+    $("guidanceText").innerHTML = "NO GPS";
+    $("guidanceText").className = "white";
+    $("subText").innerHTML = "Press START GPS outside";
+    setLightbar(0, false);
+    return;
+  }
+
+  if (!pointA) {
+    $("guidanceText").innerHTML = "SET A";
+    $("guidanceText").className = "white";
+    $("subText").innerHTML = "Press SET A to start line";
+    setLightbar(0, false);
+    return;
+  }
+
+  if (!pointB) {
+    $("guidanceText").innerHTML = "DRIVE TO B";
+    $("guidanceText").className = "yellow";
+    $("subText").innerHTML = "Drive 20-50m then press SET B";
+    setLightbar(0, false);
+    return;
+  }
+
+  var b = latLonToLocalMetres(pointA, pointB);
+  var p = latLonToLocalMetres(pointA, current);
+
+  var len = Math.sqrt(b.x * b.x + b.y * b.y);
+  if (len < 2.0) {
+    $("guidanceText").innerHTML = "BAD A-B";
+    $("guidanceText").className = "red";
+    $("subText").innerHTML = "Set A and B further apart";
+    setLightbar(0, false);
+    return;
+  }
+
+  var ux = b.x / len;
+  var uy = b.y / len;
+
+  var cross = p.x * (-uy) + p.y * ux;
+  cross += nudge;
+  cross += antennaOffset;
+
+  var swath = Math.round(cross / implementWidth);
+  var target = swath * implementWidth;
+  var error = cross - target;
+  var absErr = Math.abs(error);
+
+  updateTop(swath);
+  setLightbar(error, true);
+
+  if (absErr < 0.25) {
+    $("guidanceText").innerHTML = "ON LINE";
+    $("guidanceText").className = "green";
+    $("subText").innerHTML = "Swath " + swath + " | Nudge " + nudge.toFixed(1) + "m";
+  } else if (error < 0) {
+    $("guidanceText").innerHTML = absErr.toFixed(1) + "m LEFT";
+    $("guidanceText").className = "yellow";
+    $("subText").innerHTML = "Steer right to centre | Swath " + swath;
+  } else {
+    $("guidanceText").innerHTML = absErr.toFixed(1) + "m RIGHT";
+    $("guidanceText").className = "yellow";
+    $("subText").innerHTML = "Steer left to centre | Swath " + swath;
+  }
+}
+
+function startGps() {
+  if (!navigator.geolocation) {
+    setGpsDisplay("error", 0);
+    $("subText").innerHTML = "Browser GPS not supported";
+    return;
+  }
+
+  if (watchId !== null) {
+    $("subText").innerHTML = "GPS already started";
+    return;
+  }
+
+  setGpsDisplay("starting", 0);
+  $("btnGps").innerHTML = "GPS ON";
+  $("subText").innerHTML = "Allow location. Go outside for first fix.";
+
+  try {
+    watchId = navigator.geolocation.watchPosition(
+      function(pos) {
+        var lat = pos.coords.latitude;
+        var lon = pos.coords.longitude;
+        var accuracy = pos.coords.accuracy;
+        var spd = pos.coords.speed;
+
+        current = { lat: lat, lon: lon };
+        lastAccuracy = accuracy || 99;
+
+        if (spd !== null && !isNaN(spd)) speedKmh = spd * 3.6;
+
+        setGpsDisplay("fix", lastAccuracy);
+        $("coords").innerHTML = lat.toFixed(6) + ", " + lon.toFixed(6);
+
+        calculateGuidance();
+      },
+      function(err) {
+        var msg = "GPS error";
+        if (err.code === 1) msg = "Location permission denied";
+        if (err.code === 2) msg = "Position unavailable";
+        if (err.code === 3) msg = "GPS timeout";
+        setGpsDisplay("error", 0);
+        $("subText").innerHTML = msg;
+        watchId = null;
+        $("btnGps").innerHTML = "START GPS";
+      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
+    );
+  } catch(e) {
+    setGpsDisplay("error", 0);
+    $("subText").innerHTML = e.message;
+    watchId = null;
+  }
+}
+
+function setA() {
+  if (!current) { alert("No GPS yet. Press START GPS and wait for GPS FIX."); return; }
+  pointA = { lat: current.lat, lon: current.lon };
+  pointB = null;
+  $("guidanceText").innerHTML = "A SET";
+  $("subText").innerHTML = "Drive 20-50m then press SET B";
+  calculateGuidance();
+}
+
+function setB() {
+  if (!current || !pointA) { alert("Set A first."); return; }
+  pointB = { lat: current.lat, lon: current.lon };
+  calculateGuidance();
+}
+
+function clearLine() {
+  pointA = null;
+  pointB = null;
+  nudge = 0.0;
+  saveSettings();
+  closeMenu();
+  calculateGuidance();
+}
+
+function setWidth(w) {
+  implementWidth = w;
+  saveSettings();
+  calculateGuidance();
+}
+
+function changeWidth(d) {
+  implementWidth += d;
+  if (implementWidth < 0.5) implementWidth = 0.5;
+  saveSettings();
+  calculateGuidance();
+}
+
+function customWidth() {
+  var v = prompt("Enter implement width in metres", implementWidth.toFixed(1));
+  if (v === null) return;
+  var n = parseFloat(v);
+  if (isNaN(n) || n <= 0) { alert("Enter a valid width, e.g. 8 or 12.5"); return; }
+  implementWidth = n;
+  saveSettings();
+  calculateGuidance();
+}
+
+function nudgeLeft() { nudge -= 0.5; saveSettings(); calculateGuidance(); }
+function nudgeRight() { nudge += 0.5; saveSettings(); calculateGuidance(); }
+function antennaLeft() { antennaOffset -= 0.1; saveSettings(); calculateGuidance(); }
+function antennaRight() { antennaOffset += 0.1; saveSettings(); calculateGuidance(); }
+
+function setDayMode() {
+  document.body.style.background = "#fff";
+  $("app").style.background = "#fff";
+}
+function setNightMode() {
+  document.body.style.background = "#000";
+  $("app").style.background = "#000";
+}
+
+function openMenu() { $("menuOverlay").style.display = "block"; }
+function closeMenu() { $("menuOverlay").style.display = "none"; }
+
+function keepScreenInfo() {
+  alert("For iPad Mini iOS 9: Settings > Display & Brightness > Auto-Lock > Never. Also use Guided Access for tractor use.");
+}
+
+function isStandaloneMode() {
+  return window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+}
+
+function setupFullscreenMode() {
+  if (!isStandaloneMode()) {
+    $("installHint").style.display = "block";
+  }
+  document.addEventListener("touchmove", function(e) { e.preventDefault(); }, false);
+}
+
+buildLeds();
+setupFullscreenMode();
+setGpsDisplay("off", 0);
+updateTop(0);
+calculateGuidance();
+</script>
+</body>
+</html>
